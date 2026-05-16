@@ -1,0 +1,10 @@
+Field,Value
+Scenario,🔵 Chronic Diabetic Foot Ulcer
+Treatment,Antimicrobial Silver Hydrogel
+Healing Stage,Chronic Inflammatory (Stalled)
+pH Min,5.5
+pH Max,8.5
+pH Mean,7.51
+Bacterial Load,CRITICAL
+Reapply Interval (hr),1.0
+Trend,⬆ Alkaline Drift
