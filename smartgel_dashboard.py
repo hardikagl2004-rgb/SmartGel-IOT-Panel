@@ -1303,6 +1303,9 @@ defaults = {
     "active_tab":      0,
     "wound_selected":  None,
     "wound_category":  None,
+    "image_source":    "upload",
+    "camera_image":    None,
+    "image_received":  False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -1859,8 +1862,9 @@ with tab5:
         🩹 Clinical Wound Diagnosis & Reference Guide
       </div>
       <div style='font-size:0.84rem;color:#a8d4ed;line-height:1.6;'>
-        Select a wound type to view comprehensive clinical guidance: causes, visible signs, treatment protocol,
-        medication, healing timeline, nutrition, and warning signs — all built-in, no internet required.
+        Upload or capture a photo of the wound, then select a wound type to view comprehensive
+        clinical guidance — causes, visible signs, treatment, medications, healing timeline,
+        nutrition, and warning signs. All built-in, no internet required.
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1873,13 +1877,94 @@ with tab5:
 
     st.divider()
 
-    # ── STEP 1: Category selection ──────────────────────────────────
+    # ── IMAGE UPLOAD / CAMERA SECTION ─────────────────────────────
     st.markdown("""
-    <div style='display:flex;align-items:center;margin-bottom:12px;'>
-      <span class='step-pill'>1</span>
-      <span style='font-weight:700;font-size:0.97rem;'>Select Wound Category</span>
+    <div style='font-size:0.7rem;font-weight:800;color:#8fa5b8;
+                text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;'>
+      📷 Step 1 — Provide Wound Image (Optional)
     </div>
     """, unsafe_allow_html=True)
+
+    mode_c1, mode_c2, mode_c3 = st.columns([1, 1, 4])
+    with mode_c1:
+        if st.button(
+            "📁 Upload File", use_container_width=True, key="mode_upload",
+            type="primary" if st.session_state.image_source == "upload" else "secondary",
+        ):
+            st.session_state.image_source  = "upload"
+            st.session_state.camera_image  = None
+            st.session_state.image_received = False
+            st.rerun()
+    with mode_c2:
+        if st.button(
+            "📷 Use Camera", use_container_width=True, key="mode_camera",
+            type="primary" if st.session_state.image_source == "camera" else "secondary",
+        ):
+            st.session_state.image_source  = "camera"
+            st.session_state.image_received = False
+            st.rerun()
+
+    img_left, img_right = st.columns([1, 1])
+
+    with img_left:
+        if st.session_state.image_source == "upload":
+            uploaded_file = st.file_uploader(
+                "Drag & drop or click to browse",
+                type=["jpg", "jpeg", "png", "webp", "bmp"],
+                help="Supported: JPG, PNG, WEBP, BMP",
+                key="wound_uploader",
+            )
+            if uploaded_file is not None:
+                st.session_state.image_received = True
+            else:
+                st.session_state.image_received = False
+            has_image   = uploaded_file is not None
+            image_to_show = uploaded_file
+        else:
+            cam_result = st.camera_input(
+                "Take a photo of the wound",
+                key="camera_widget",
+            )
+            if cam_result is not None:
+                st.session_state.camera_image   = cam_result
+                st.session_state.image_received = True
+            has_image   = st.session_state.camera_image is not None
+            image_to_show = st.session_state.camera_image
+
+    with img_right:
+        if has_image and image_to_show is not None:
+            st.image(image_to_show, caption="Wound image received", use_container_width=True)
+
+    # ── GOT IT confirmation — shown immediately after image provided ──
+    if st.session_state.image_received and has_image:
+        st.markdown("""
+        <div style='background:linear-gradient(135deg,#1b8a5a 0%,#0f5c3a 100%);
+                    border-radius:14px;padding:1.4rem 1.8rem;margin:1rem 0;
+                    display:flex;align-items:center;gap:16px;'>
+          <div style='font-size:2.8rem;'>✅</div>
+          <div>
+            <div style='font-family:Merriweather Sans,sans-serif;font-weight:800;
+                        font-size:1.25rem;color:#ffffff;letter-spacing:-0.01em;'>
+              Got it!
+            </div>
+            <div style='font-size:0.85rem;color:#a7dfbe;margin-top:4px;line-height:1.5;'>
+              Your wound image has been received. Now select a wound type below
+              to get the full diagnosis, treatment plan, and healing timeline.
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    st.markdown("""
+    <div style='font-size:0.7rem;font-weight:800;color:#8fa5b8;
+                text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;'>
+      🩹 Step 2 — Select Wound Type for Diagnosis
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
 
     cat_cols = st.columns(len(WOUND_CATEGORIES))
     cat_colors = {
@@ -1920,15 +2005,6 @@ with tab5:
 
     # ── STEP 2: Wound type selection ────────────────────────────────
     if st.session_state.wound_category:
-        st.markdown(f"""
-        <div style='display:flex;align-items:center;margin-bottom:12px;'>
-          <span class='step-pill'>2</span>
-          <span style='font-weight:700;font-size:0.97rem;'>
-            Select Wound Type — <span style='color:#1d6fa4;'>{st.session_state.wound_category}</span>
-          </span>
-        </div>
-        """, unsafe_allow_html=True)
-
         wound_list = WOUND_CATEGORIES[st.session_state.wound_category]
         wnd_cols   = st.columns(min(len(wound_list), 3))
         for i, wname in enumerate(wound_list):
