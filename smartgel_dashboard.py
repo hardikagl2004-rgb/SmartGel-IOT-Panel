@@ -4,6 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import time
 import random
+import base64
+import json
+import re
 from datetime import datetime
 
 # ------------------------------------------------------------------
@@ -92,6 +95,8 @@ if "sim_running" not in st.session_state:
     st.session_state.sim_running = False
 if "log"         not in st.session_state:
     st.session_state.log         = []
+if "wound_analysis" not in st.session_state:
+    st.session_state.wound_analysis = None
 
 # ------------------------------------------------------------------
 # SIDEBAR
@@ -163,11 +168,12 @@ st.divider()
 # ------------------------------------------------------------------
 # TABS
 # ------------------------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "  Dashboard  ",
     "  pH Trend Analysis  ",
     "  Sensor Log  ",
     "  Clinical Report  ",
+    "  🩹 Wound Image Analysis  ",
 ])
 
 # ==================================================================
@@ -179,7 +185,6 @@ with tab1:
     cur_temp = round(random.uniform(*sc["temp_range"]), 1)
     cur_mois = round(random.uniform(*sc["moisture_range"]), 1)
 
-    # ---- KPI row ----
     k1, k2, k3, k4 = st.columns(4)
 
     ph_delta_color = "inverse" if cur_ph > 7.0 else "normal"
@@ -213,7 +218,6 @@ with tab1:
     with left_col:
         st.subheader("Hydrogel Physical Status")
 
-        # Coloured gauge showing pH with gel orb
         gc = sc["gel_color"]
         r_val = int(gc[1:3], 16)
         g_val = int(gc[3:5], 16)
@@ -343,7 +347,6 @@ with tab1:
         st.plotly_chart(fig_trend, use_container_width=True,
                         config={"displayModeBar": False})
 
-        # Mini summary bar under the chart
         s1, s2, s3 = st.columns(3)
         s1.metric("Min pH (10-day)", str(min(sc["ph_readings"])))
         s2.metric("Max pH (10-day)", str(max(sc["ph_readings"])))
@@ -554,7 +557,6 @@ with tab3:
     if st.session_state.log:
         df_log = pd.DataFrame(st.session_state.log)
 
-        # Summary metrics
         total   = len(df_log)
         ok_cnt  = len(df_log[df_log["Status"] == "OK"])
         crit_cnt = total - ok_cnt
@@ -569,7 +571,6 @@ with tab3:
         st.divider()
         st.dataframe(df_log, use_container_width=True, height=420)
 
-        # pH over time from log
         if len(df_log) > 1:
             st.markdown("**pH Over Time (from log)**")
             fig_log = go.Figure(go.Scatter(
@@ -618,7 +619,6 @@ with tab3:
             "Click 'Add Reading' above or start the live simulation."
         )
 
-    # Live simulation loop
     if st.session_state.sim_running:
         with st.spinner("Live simulation active -- auto-logging readings..."):
             time.sleep(sim_interval)
@@ -757,7 +757,6 @@ with tab4:
         st.plotly_chart(fig_radar, use_container_width=True,
                         config={"displayModeBar": False})
 
-        # Score table under radar
         radar_df = pd.DataFrame({
             "Category": categories,
             "Score / 100": scores,
@@ -769,3 +768,342 @@ with tab4:
         })
         st.dataframe(radar_df, use_container_width=True,
                      hide_index=True, height=245)
+
+
+# ==================================================================
+# TAB 5 -- WOUND IMAGE ANALYSIS (AI-Powered)
+# ==================================================================
+with tab5:
+    st.subheader("🩹 AI-Powered Wound Image Analysis")
+    st.caption(
+        "Upload a photo of your wound, cut, burn, or skin injury. "
+        "Our AI will assess severity, estimate healing time, and provide care recommendations."
+    )
+
+    st.warning(
+        "⚠️ **Medical Disclaimer**: This AI analysis is for informational purposes only and does "
+        "NOT replace professional medical advice. Always consult a qualified healthcare provider "
+        "for diagnosis and treatment, especially for serious wounds."
+    )
+
+    st.divider()
+
+    # --- Upload section ---
+    upload_col, preview_col = st.columns([1, 1])
+
+    with upload_col:
+        st.markdown("**Step 1: Upload Wound Image**")
+        uploaded_file = st.file_uploader(
+            "Choose an image file",
+            type=["jpg", "jpeg", "png", "webp", "bmp"],
+            help="Supported formats: JPG, PNG, WEBP, BMP. Max size: 10 MB.",
+        )
+
+        st.markdown("**Step 2: Provide Context (Optional)**")
+        wound_age = st.selectbox(
+            "How old is this wound?",
+            ["Just occurred (< 1 hour)", "Few hours old (1–12 hours)",
+             "1 day old", "2–3 days old", "4–7 days old",
+             "More than 1 week old", "Chronic / Unknown"],
+        )
+        patient_context = st.text_area(
+            "Additional context (optional)",
+            placeholder="E.g.: diabetic patient, animal bite, burn from hot water, "
+                        "not cleaned yet, on blood thinners...",
+            height=100,
+        )
+
+        analyze_btn = st.button(
+            "🔬 Analyse Wound with AI",
+            type="primary",
+            use_container_width=True,
+            disabled=(uploaded_file is None),
+        )
+
+    with preview_col:
+        if uploaded_file:
+            st.markdown("**Image Preview**")
+            st.image(uploaded_file, caption="Uploaded wound image", use_column_width=True)
+        else:
+            st.markdown("**Image Preview**")
+            st.info("Upload an image on the left to see a preview here.")
+
+    st.divider()
+
+    # --- AI Analysis ---
+    if analyze_btn and uploaded_file:
+        # Encode image to base64
+        image_bytes = uploaded_file.read()
+        b64_image   = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+        # Determine MIME type
+        fname = uploaded_file.name.lower()
+        if fname.endswith(".png"):
+            mime_type = "image/png"
+        elif fname.endswith(".webp"):
+            mime_type = "image/webp"
+        elif fname.endswith(".bmp"):
+            mime_type = "image/bmp"
+        else:
+            mime_type = "image/jpeg"
+
+        # Build context string
+        context_str = ""
+        if patient_context.strip():
+            context_str = "\n\nAdditional context provided by the user: " + patient_context.strip()
+
+        prompt = f"""You are a clinical wound assessment AI assistant integrated into the SmartGel IoT Healthcare Portal.
+A patient has uploaded a photo of their wound/injury and it is {wound_age}.{context_str}
+
+Carefully analyse the wound image and provide a structured JSON response ONLY — no preamble, no markdown fences, no extra text.
+
+Return a JSON object with exactly these keys:
+
+{{
+  "wound_type": "Short label e.g. Laceration / Abrasion / Burn / Puncture / Ulcer / Contusion / Infected wound / etc.",
+  "severity_level": "MILD | MODERATE | SEVERE | CRITICAL",
+  "severity_score": <integer 1-10>,
+  "affected_area": "Brief description of body area and size estimate",
+  "visible_signs": ["list", "of", "visible", "clinical", "signs"],
+  "infection_risk": "LOW | MEDIUM | HIGH | VERY HIGH",
+  "healing_time_min_days": <integer>,
+  "healing_time_max_days": <integer>,
+  "healing_phase": "Current wound healing phase: Haemostasis / Inflammatory / Proliferative / Remodelling",
+  "immediate_actions": ["step 1", "step 2", "step 3"],
+  "recommended_treatment": "Concise treatment recommendation including dressing type",
+  "smartgel_recommendation": "Which SmartGel product or protocol from the portal is most relevant",
+  "seek_emergency": true or false,
+  "seek_doctor_within": "Immediately | Within 24 hours | Within 48-72 hours | Within 1 week | Monitor at home",
+  "care_instructions": ["daily care step 1", "daily care step 2", "daily care step 3", "daily care step 4"],
+  "warning_signs": ["sign to watch for 1", "sign to watch for 2", "sign to watch for 3"],
+  "confidence_note": "One sentence on confidence / limitations of this visual assessment"
+}}
+
+Be medically accurate, conservative, and safety-first. If the wound appears serious, do not downplay it."""
+
+        with st.spinner("🔬 Analysing wound image with AI... Please wait."):
+            try:
+                import urllib.request
+                import urllib.error
+
+                payload = json.dumps({
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1500,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": mime_type,
+                                        "data": b64_image,
+                                    },
+                                },
+                                {"type": "text", "text": prompt},
+                            ],
+                        }
+                    ],
+                }).encode("utf-8")
+
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/messages",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+
+                with urllib.request.urlopen(req) as resp:
+                    raw = json.loads(resp.read().decode("utf-8"))
+
+                # Extract text content
+                full_text = ""
+                for block in raw.get("content", []):
+                    if block.get("type") == "text":
+                        full_text += block["text"]
+
+                # Strip any stray markdown fences and parse
+                clean = re.sub(r"```(?:json)?", "", full_text).strip().rstrip("`").strip()
+                result = json.loads(clean)
+                st.session_state.wound_analysis = result
+
+            except Exception as e:
+                st.error("Analysis failed: " + str(e))
+                st.session_state.wound_analysis = None
+
+    # --- Display Results ---
+    if st.session_state.wound_analysis:
+        r = st.session_state.wound_analysis
+
+        st.subheader("📋 AI Wound Assessment Results")
+
+        # Severity colour mapping
+        sev = r.get("severity_level", "MODERATE")
+        sev_color_map = {
+            "MILD":     ("#16a34a", "#dcfce7"),
+            "MODERATE": ("#d97706", "#fef9c3"),
+            "SEVERE":   ("#dc2626", "#fee2e2"),
+            "CRITICAL": ("#7c3aed", "#ede9fe"),
+        }
+        sev_color, sev_bg = sev_color_map.get(sev, ("#475569", "#f1f5f9"))
+
+        # Top summary banner
+        score = r.get("severity_score", 5)
+        if r.get("seek_emergency"):
+            st.error(
+                "🚨 **EMERGENCY**: This wound requires IMMEDIATE emergency medical attention. "
+                "Call emergency services or go to the nearest emergency room NOW."
+            )
+
+        # KPI row
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Wound Type",      r.get("wound_type", "Unknown"))
+        m2.metric("Severity Score",  str(score) + " / 10")
+        m3.metric("Infection Risk",  r.get("infection_risk", "Unknown"))
+        m4.metric(
+            "Est. Healing Time",
+            str(r.get("healing_time_min_days", "?")) + "–" +
+            str(r.get("healing_time_max_days", "?")) + " days",
+        )
+
+        st.divider()
+
+        detail_col, action_col = st.columns([1, 1])
+
+        with detail_col:
+            st.markdown("#### 🔍 Clinical Details")
+
+            details_rows = [
+                ("Severity Level",      r.get("severity_level", "—")),
+                ("Severity Score",      str(r.get("severity_score", "—")) + " / 10"),
+                ("Wound Type",          r.get("wound_type", "—")),
+                ("Affected Area",       r.get("affected_area", "—")),
+                ("Healing Phase",       r.get("healing_phase", "—")),
+                ("Infection Risk",      r.get("infection_risk", "—")),
+                ("Healing Time (Est.)", str(r.get("healing_time_min_days", "?")) +
+                                        "–" + str(r.get("healing_time_max_days", "?")) + " days"),
+                ("See Doctor Within",   r.get("seek_doctor_within", "—")),
+                ("SmartGel Protocol",   r.get("smartgel_recommendation", "—")),
+                ("Recommended Tx",      r.get("recommended_treatment", "—")),
+            ]
+            df_details = pd.DataFrame(details_rows, columns=["Parameter", "Value"])
+            st.dataframe(df_details, use_container_width=True, hide_index=True, height=380)
+
+            # Visible signs
+            signs = r.get("visible_signs", [])
+            if signs:
+                st.markdown("**🩺 Visible Clinical Signs Detected:**")
+                for s in signs:
+                    st.markdown("- " + str(s))
+
+        with action_col:
+            st.markdown("#### ⚡ Immediate Actions Required")
+            for i, step in enumerate(r.get("immediate_actions", []), 1):
+                st.markdown(str(i) + ". " + str(step))
+
+            st.divider()
+            st.markdown("#### 🏥 Daily Care Instructions")
+            for i, step in enumerate(r.get("care_instructions", []), 1):
+                st.markdown(str(i) + ". " + str(step))
+
+            st.divider()
+            st.markdown("#### ⚠️ Warning Signs to Watch For")
+            for sign in r.get("warning_signs", []):
+                st.markdown("🔴 " + str(sign))
+
+        st.divider()
+
+        # Severity visual gauge
+        st.markdown("#### 📊 Severity Visualisation")
+        gauge_col, note_col = st.columns([2, 1])
+
+        with gauge_col:
+            score_val = r.get("severity_score", 5)
+            fig_sev = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=score_val,
+                number={"font": {"size": 52, "color": sev_color}, "suffix": "/10"},
+                gauge={
+                    "axis": {
+                        "range": [0, 10],
+                        "tickwidth": 1,
+                        "tickcolor": "#64748b",
+                        "tickfont": {"size": 11},
+                        "nticks": 11,
+                    },
+                    "bar": {"color": sev_color, "thickness": 0.28},
+                    "bgcolor": "#f0f6fb",
+                    "borderwidth": 1,
+                    "bordercolor": "#cbd5e1",
+                    "steps": [
+                        {"range": [0,   3.5], "color": "#dcfce7"},
+                        {"range": [3.5, 6.0], "color": "#fef9c3"},
+                        {"range": [6.0, 8.5], "color": "#fee2e2"},
+                        {"range": [8.5, 10],  "color": "#ede9fe"},
+                    ],
+                },
+                title={
+                    "text": "Wound Severity Score<br>"
+                            "<span style='font-size:12px;color:#64748b'>"
+                            "1–3 Mild | 4–6 Moderate | 7–8 Severe | 9–10 Critical</span>",
+                    "font": {"size": 14, "color": "#334155"},
+                },
+            ))
+            fig_sev.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                height=300,
+                margin=dict(l=20, r=20, t=60, b=10),
+            )
+            st.plotly_chart(fig_sev, use_container_width=True,
+                            config={"displayModeBar": False})
+
+        with note_col:
+            st.markdown("#### 📝 Confidence Note")
+            st.info(r.get("confidence_note", "No note available."))
+
+            heal_min = r.get("healing_time_min_days", 0)
+            heal_max = r.get("healing_time_max_days", 0)
+            st.markdown("#### ⏱️ Healing Timeline")
+            st.success(
+                "Estimated healing: **" + str(heal_min) + " – " + str(heal_max) + " days**\n\n"
+                "Phase: " + r.get("healing_phase", "Unknown")
+            )
+
+        st.divider()
+
+        # Export report
+        export_rows = [
+            ("Wound Type",          r.get("wound_type", "")),
+            ("Severity Level",      r.get("severity_level", "")),
+            ("Severity Score",      str(r.get("severity_score", ""))),
+            ("Affected Area",       r.get("affected_area", "")),
+            ("Infection Risk",      r.get("infection_risk", "")),
+            ("Healing Time (days)", str(r.get("healing_time_min_days", "")) +
+                                    "–" + str(r.get("healing_time_max_days", ""))),
+            ("Healing Phase",       r.get("healing_phase", "")),
+            ("See Doctor Within",   r.get("seek_doctor_within", "")),
+            ("Recommended Tx",      r.get("recommended_treatment", "")),
+            ("SmartGel Protocol",   r.get("smartgel_recommendation", "")),
+            ("Seek Emergency",      str(r.get("seek_emergency", False))),
+            ("Visible Signs",       "; ".join(r.get("visible_signs", []))),
+            ("Immediate Actions",   "; ".join(r.get("immediate_actions", []))),
+            ("Care Instructions",   "; ".join(r.get("care_instructions", []))),
+            ("Warning Signs",       "; ".join(r.get("warning_signs", []))),
+            ("Confidence Note",     r.get("confidence_note", "")),
+            ("Wound Age",           wound_age),
+            ("Analysis Time",       datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        ]
+        df_export_report = pd.DataFrame(export_rows, columns=["Parameter", "Value"])
+        st.download_button(
+            "📥 Download AI Wound Analysis Report (CSV)",
+            df_export_report.to_csv(index=False),
+            "smartgel_wound_analysis.csv",
+            "text/csv",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if st.button("🔄 Clear Analysis & Upload New Image", use_container_width=True):
+            st.session_state.wound_analysis = None
+            st.rerun()
