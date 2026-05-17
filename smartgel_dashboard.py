@@ -932,7 +932,7 @@ Be medically accurate, conservative, and safety-first. If the wound appears seri
 
                 gemini_url = (
                     "https://generativelanguage.googleapis.com/v1beta/models/"
-                    "gemini-1.5-flash:generateContent?key=" + api_key
+                    "gemini-2.0-flash:generateContent?key=" + api_key
                 )
                 req = urllib.request.Request(
                     gemini_url,
