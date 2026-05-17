@@ -139,6 +139,17 @@ with st.sidebar:
         "Treatment: " + sc_side["treatment"]
     )
     st.divider()
+    st.subheader("🔑 AI Analysis Key")
+    st.caption("Required for Wound Image Analysis tab.")
+    sidebar_api_key = st.text_input(
+        "Anthropic API Key",
+        type="password",
+        placeholder="sk-ant-...",
+        help="Enter your Anthropic API key, or set ANTHROPIC_API_KEY in Streamlit secrets.",
+    )
+    if sidebar_api_key:
+        st.session_state["sidebar_api_key"] = sidebar_api_key
+    st.divider()
     st.caption("SmartGel IoT Healthcare Portal v3.0")
     st.caption("(c) 2025 SmartGel Medical Systems")
 
@@ -886,6 +897,20 @@ Be medically accurate, conservative, and safety-first. If the wound appears seri
                 import urllib.request
                 import urllib.error
 
+                # Resolve API key: secrets file → sidebar input
+                api_key = st.secrets.get("ANTHROPIC_API_KEY", "") or st.session_state.get("sidebar_api_key", "")
+                if not api_key:
+                    st.error(
+                        "**API Key Missing.** Provide it via one of these methods:\n\n"
+                        "**Option A – Streamlit Cloud Secrets** (recommended for deployed apps):\n"
+                        "App Settings → Secrets → add `ANTHROPIC_API_KEY = \"sk-ant-...\"`\n\n"
+                        "**Option B – Local secrets file**: create `.streamlit/secrets.toml` "
+                        "and add `ANTHROPIC_API_KEY = \"sk-ant-...\"`\n\n"
+                        "**Option C – Sidebar**: paste your key directly into the "
+                        "🔑 AI Analysis Key field in the left sidebar."
+                    )
+                    st.stop()
+
                 payload = json.dumps({
                     "model": "claude-sonnet-4-20250514",
                     "max_tokens": 1500,
@@ -910,7 +935,11 @@ Be medically accurate, conservative, and safety-first. If the wound appears seri
                 req = urllib.request.Request(
                     "https://api.anthropic.com/v1/messages",
                     data=payload,
-                    headers={"Content-Type": "application/json"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
                     method="POST",
                 )
 
